@@ -31,7 +31,7 @@ export function SiteFooter() {
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary">
                 <span className="text-xl font-bold text-white">T</span>
               </div>
-              <span className="font-display text-xl font-bold">TORNEO ÉLITE</span>
+              <span className="font-display text-xl font-bold">TORNEOS ÉLITES</span>
             </Link>
             <p className="text-sm text-muted-foreground leading-relaxed">
               La competencia deportiva más emocionante del año. Sigue todos los partidos en vivo.
