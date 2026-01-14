@@ -37,7 +37,7 @@ const matches = [
   },
 ]
 
-export function FeaturedMatches() {
+export function PartidosDestacados() {
   return (
     <section className="bg-background py-16 px-4">
       <div className="mx-auto max-w-7xl">

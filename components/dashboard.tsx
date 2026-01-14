@@ -12,162 +12,24 @@ import { Jugador } from "@/app/interface/jugador"
 import { Evento } from "@/app/interface/evento"
 import { doc, serverTimestamp, setDoc, collection, query, where, getDocs } from "firebase/firestore"
 import { db } from "@/lib/firebase"
-// import { ref, uploadBytes, getDownloadURL } from "firebase/storage"
-// import { storage } from "@/lib/firebase"
+import { CrearTorneo, CrearEquipo, CrearJugador, CrearEvento } from "@/app/services/almacenamiento"
+import { obtenerTorneosUsuario, obtenerEquiposUsuario, obtenerJugadoresUsuario } from "@/app/services/busqueda"
 
 interface DashboardProps {
     user: User;
 }
 
-// Funciones de almacenamiento en Firestore
-const CrearTorneo = async (datos: Torneo, userId: string) => {
-    try {
-        const torneoRef = doc(collection(db, "torneos"));
-
-        await setDoc(torneoRef, {
-            ...datos,
-            creador: userId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-        });
-
-        console.log("Torneo almacenado exitosamente");
-        return { success: true, id: torneoRef.id };
-    } catch (error) {
-        console.error("Error al guardar Torneo", error);
-        throw { success: false, error: error };
-    }
-}
-
-const CrearEquipo = async (datos: Equipo, userId: string) => {
-    try {
-        const equipoRef = doc(collection(db, "equipos"));
-
-        await setDoc(equipoRef, {
-            ...datos,
-            creador: userId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-        });
-
-        console.log("Equipo almacenado exitosamente");
-        return { success: true, id: equipoRef.id };
-    } catch (error) {
-        console.error("Error al guardar Equipo", error);
-        throw { success: false, error: error };
-    }
-}
-
-const CrearJugador = async (datos: Jugador, userId: string) => {
-    try {
-        const jugadorRef = doc(collection(db, "jugadores"));
-
-        await setDoc(jugadorRef, {
-            ...datos,
-            creador: userId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-        });
-
-        console.log("Jugador almacenado exitosamente");
-        return { success: true, id: jugadorRef.id };
-    } catch (error) {
-        console.error("Error al guardar Jugador", error);
-        throw { success: false, error: error };
-    }
-}
-
-const CrearEvento = async (datos: Evento, userId: string) => {
-    try {
-        const eventoRef = doc(collection(db, "eventos"));
-
-        await setDoc(eventoRef, {
-            ...datos,
-            creador: userId,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-        });
-
-        console.log("Evento almacenado exitosamente");
-        return { success: true, id: eventoRef.id };
-    } catch (error) {
-        console.error("Error al guardar Evento", error);
-        throw { success: false, error: error };
-    }
-}
-
-// Función para obtener torneos del usuario
-const obtenerTorneosUsuario = async (userId: string) => {
-    try {
-        const torneosRef = collection(db, "torneos");
-        const q = query(torneosRef, where("creador", "==", userId));
-        const querySnapshot = await getDocs(q);
-
-        const torneos: any[] = [];
-        querySnapshot.forEach((doc) => {
-            torneos.push({ id: doc.id, ...doc.data() });
-        });
-
-        return torneos;
-    } catch (error) {
-        console.error("Error al obtener torneos:", error);
-        return [];
-    }
-}
-
-// Función para obtener equipos del usuario filtrados por torneo
-const obtenerEquiposUsuario = async (userId: string, torneoId?: string) => {
-    try {
-        const equiposRef = collection(db, "equipos");
-        let q;
-
-        if (torneoId) {
-            q = query(equiposRef,
-                where("creador", "==", userId),
-                where("torneo", "==", torneoId)
-            );
-        } else {
-            q = query(equiposRef, where("creador", "==", userId));
-        }
-
-        const querySnapshot = await getDocs(q);
-
-        const equipos: any[] = [];
-        querySnapshot.forEach((doc) => {
-            equipos.push({ id: doc.id, ...doc.data() });
-        });
-
-        return equipos;
-    } catch (error) {
-        console.error("Error al obtener equipos:", error);
-        return [];
-    }
-}
-
-// // Función auxiliar para subir imágenes (comentada por ahora)
-// const subirImagen = async (file: File, carpeta: string): Promise<string> => {
-//     try {
-//         const timestamp = Date.now();
-//         const nombreArchivo = `${carpeta}/${timestamp}_${file.name}`;
-//         const storageRef = ref(storage, nombreArchivo);
-
-//         await uploadBytes(storageRef, file);
-//         const url = await getDownloadURL(storageRef);
-
-//         return url;
-//     } catch (error) {
-//         console.error("Error al subir imagen:", error);
-//         throw error;
-//     }
-// }
-
 export function Dashboard({ user }: DashboardProps) {
     const [view, setView] = useState<"overview" | "torneo" | "equipo" | "jugador" | "evento">("overview")
     const [loading, setLoading] = useState(false);
 
+    // Estado para el torneo seleccionado globalmente
+    const [torneoSeleccionado, setTorneoSeleccionado] = useState<string>("");
+
     // Estados para datos del usuario
     const [torneos, setTorneos] = useState<any[]>([]);
     const [equipos, setEquipos] = useState<any[]>([]);
+    const [jugadores, setJugadores] = useState<any[]>([]);
     const [tieneTorneos, setTieneTorneos] = useState(false);
     const [tieneEquipos, setTieneEquipos] = useState(false);
 
@@ -205,7 +67,9 @@ export function Dashboard({ user }: DashboardProps) {
         eventoEquipoLocal: "",
         eventoEquipoVisitante: "",
         eventoFecha: "",
-        eventoHora: ""
+        eventoHora: "",
+        eventoTorneo: "",
+        eventoImagen: null as File | null
     });
 
     // Cargar datos del usuario al montar el componente
@@ -213,26 +77,53 @@ export function Dashboard({ user }: DashboardProps) {
         cargarDatosUsuario();
     }, [user.uid]);
 
-    // Recargar equipos cuando cambia el torneo seleccionado
+    // Cuando se selecciona un torneo globalmente, filtrar todos los datos
     useEffect(() => {
-        if (formEquipoData.equipoTorneo) {
-            cargarEquiposPorTorneo(formEquipoData.equipoTorneo);
+        if (torneoSeleccionado) {
+            cargarDatosPorTorneo(torneoSeleccionado);
+            // Actualizar los formularios con el torneo seleccionado
+            setFormEquipoData(prev => ({ ...prev, equipoTorneo: torneoSeleccionado }));
+            setFormEventoData(prev => ({ ...prev, eventoTorneo: torneoSeleccionado }));
+        } else {
+            // Si no hay torneo seleccionado, limpiar equipos y jugadores
+            setEquipos([]);
+            setJugadores([]);
+            setTieneEquipos(false);
         }
-    }, [formEquipoData.equipoTorneo]);
+    }, [torneoSeleccionado]);
+
+    // Cuando cambia el equipo seleccionado en el formulario de jugador, cargar jugadores
+    useEffect(() => {
+        if (formJugadorData.jugadorEquipo) {
+            cargarJugadoresPorEquipo(formJugadorData.jugadorEquipo);
+        }
+    }, [formJugadorData.jugadorEquipo]);
 
     const cargarDatosUsuario = async () => {
         const torneosData = await obtenerTorneosUsuario(user.uid);
-        const equiposData = await obtenerEquiposUsuario(user.uid);
-
         setTorneos(torneosData);
-        setEquipos(equiposData);
         setTieneTorneos(torneosData.length > 0);
-        setTieneEquipos(equiposData.length > 0);
+
+        // Si hay torneos y no hay uno seleccionado, seleccionar el primero
+        if (torneosData.length > 0 && !torneoSeleccionado) {
+            setTorneoSeleccionado(torneosData[0].id);
+        }
     }
 
-    const cargarEquiposPorTorneo = async (torneoId: string) => {
+    const cargarDatosPorTorneo = async (torneoId: string) => {
+        // Cargar equipos del torneo seleccionado
         const equiposData = await obtenerEquiposUsuario(user.uid, torneoId);
         setEquipos(equiposData);
+        setTieneEquipos(equiposData.length > 0);
+
+        // Cargar jugadores del torneo (a través de sus equipos)
+        const jugadoresData = await obtenerJugadoresUsuario(user.uid, torneoId);
+        setJugadores(jugadoresData);
+    }
+
+    const cargarJugadoresPorEquipo = async (equipoId: string) => {
+        // Esta función podría usarse si necesitas cargar jugadores específicos de un equipo
+        // Por ahora, los jugadores ya están cargados por torneo
     }
 
     // Validar si puede acceder a la vista
@@ -247,6 +138,12 @@ export function Dashboard({ user }: DashboardProps) {
                         mensaje: "Debes crear al menos un torneo antes de agregar equipos."
                     };
                 }
+                if (!torneoSeleccionado) {
+                    return {
+                        puede: false,
+                        mensaje: "Debes seleccionar un torneo antes de agregar equipos."
+                    };
+                }
                 return { puede: true, mensaje: "" };
             case "jugador":
                 if (!tieneTorneos) {
@@ -255,10 +152,16 @@ export function Dashboard({ user }: DashboardProps) {
                         mensaje: "Debes crear al menos un torneo antes de inscribir jugadores."
                     };
                 }
+                if (!torneoSeleccionado) {
+                    return {
+                        puede: false,
+                        mensaje: "Debes seleccionar un torneo antes de inscribir jugadores."
+                    };
+                }
                 if (!tieneEquipos) {
                     return {
                         puede: false,
-                        mensaje: "Debes crear al menos un equipo antes de inscribir jugadores."
+                        mensaje: "Debes crear al menos un equipo en este torneo antes de inscribir jugadores."
                     };
                 }
                 return { puede: true, mensaje: "" };
@@ -269,10 +172,16 @@ export function Dashboard({ user }: DashboardProps) {
                         mensaje: "Debes crear al menos un torneo antes de registrar eventos."
                     };
                 }
+                if (!torneoSeleccionado) {
+                    return {
+                        puede: false,
+                        mensaje: "Debes seleccionar un torneo antes de registrar eventos."
+                    };
+                }
                 if (!tieneEquipos) {
                     return {
                         puede: false,
-                        mensaje: "Debes crear al menos un equipo antes de registrar eventos."
+                        mensaje: "Debes crear al menos un equipo en este torneo antes de registrar eventos."
                     };
                 }
                 return { puede: true, mensaje: "" };
@@ -301,10 +210,6 @@ export function Dashboard({ user }: DashboardProps) {
         try {
             let logoUrl = "";
 
-            // if (formTorneoData.torneoLogo) {
-            //     logoUrl = await subirImagen(formTorneoData.torneoLogo, "torneos/logos");
-            // }
-
             const datosTorneo: Torneo = {
                 nombre: formTorneoData.torneoNombre,
                 representante: formTorneoData.torneoRepresentante,
@@ -326,6 +231,8 @@ export function Dashboard({ user }: DashboardProps) {
                 });
                 // Recargar datos
                 await cargarDatosUsuario();
+                // Seleccionar el torneo recién creado
+                setTorneoSeleccionado(resultado.id);
                 setView("overview");
             }
         } catch (error) {
@@ -343,15 +250,11 @@ export function Dashboard({ user }: DashboardProps) {
         try {
             let logoUrl = "";
 
-            // if (formEquipoData.equipoLogo) {
-            //     logoUrl = await subirImagen(formEquipoData.equipoLogo, "equipos/logos");
-            // }
-
             const datosEquipo: Equipo = {
                 nombre: formEquipoData.equipoNombre,
                 representante: formEquipoData.equipoRepresentante,
                 logoUrl: logoUrl,
-                torneo: formEquipoData.equipoTorneo
+                torneo: torneoSeleccionado // Usar el torneo seleccionado globalmente
             };
 
             const resultado = await CrearEquipo(datosEquipo, user.uid);
@@ -362,10 +265,10 @@ export function Dashboard({ user }: DashboardProps) {
                     equipoNombre: "",
                     equipoRepresentante: "",
                     equipoLogo: null,
-                    equipoTorneo: ""
+                    equipoTorneo: torneoSeleccionado
                 });
-                // Recargar datos
-                await cargarDatosUsuario();
+                // Recargar datos del torneo actual
+                await cargarDatosPorTorneo(torneoSeleccionado);
                 setView("overview");
             }
         } catch (error) {
@@ -382,10 +285,6 @@ export function Dashboard({ user }: DashboardProps) {
 
         try {
             let fotoUrl = "";
-
-            // if (formJugadorData.jugadorFoto) {
-            //     fotoUrl = await subirImagen(formJugadorData.jugadorFoto, "jugadores/fotos");
-            // }
 
             const datosJugador: Jugador = {
                 nombre: formJugadorData.jugadorNombre,
@@ -414,6 +313,8 @@ export function Dashboard({ user }: DashboardProps) {
                     jugadorPosicion: "",
                     jugadorFoto: null
                 });
+                // Recargar jugadores
+                await cargarDatosPorTorneo(torneoSeleccionado);
                 setView("overview");
             }
         } catch (error) {
@@ -429,13 +330,17 @@ export function Dashboard({ user }: DashboardProps) {
         setLoading(true);
 
         try {
+            let imagenUrl = "";
+
             const datosEvento: Evento = {
                 nombre: formEventoData.eventoNombre,
                 ubicacion: formEventoData.eventoUbicacion,
                 equipoLocal: formEventoData.eventoEquipoLocal,
                 equipoVisitante: formEventoData.eventoEquipoVisitante,
                 fecha: formEventoData.eventoFecha,
-                hora: formEventoData.eventoHora
+                hora: formEventoData.eventoHora,
+                torneo: torneoSeleccionado, // Usar el torneo seleccionado globalmente
+                imagenUrl: imagenUrl
             };
 
             const resultado = await CrearEvento(datosEvento, user.uid);
@@ -448,7 +353,9 @@ export function Dashboard({ user }: DashboardProps) {
                     eventoEquipoLocal: "",
                     eventoEquipoVisitante: "",
                     eventoFecha: "",
-                    eventoHora: ""
+                    eventoHora: "",
+                    eventoTorneo: torneoSeleccionado,
+                    eventoImagen: null
                 });
                 setView("overview");
             }
@@ -471,35 +378,54 @@ export function Dashboard({ user }: DashboardProps) {
                         </h2>
                         <p className="text-muted-foreground mt-2 font-medium">Gestiona tu torneo, equipos y jugadores.</p>
                     </div>
-                    <div className="flex gap-2">
-                        <Button
-                            variant={view === "torneo" ? "default" : "outline"}
-                            className="font-bold border-2"
-                            onClick={() => handleCambiarVista("torneo")}
-                        >
-                            <Trophy className="mr-2 h-4 w-4" /> + TORNEO
-                        </Button>
-                        <Button
-                            variant={view === "equipo" ? "default" : "outline"}
-                            className="font-bold border-2"
-                            onClick={() => handleCambiarVista("equipo")}
-                        >
-                            <Users className="mr-2 h-4 w-4" /> + EQUIPO
-                        </Button>
-                        <Button
-                            variant={view === "jugador" ? "default" : "outline"}
-                            className="font-bold border-2"
-                            onClick={() => handleCambiarVista("jugador")}
-                        >
-                            <UserPlus className="mr-2 h-4 w-4" /> + JUGADOR
-                        </Button>
-                        <Button
-                            variant={view === "evento" ? "default" : "outline"}
-                            className="font-bold border-2"
-                            onClick={() => handleCambiarVista("evento")}
-                        >
-                            <Calendar1 className="mr-2 h-4 w-4" /> + EVENTO
-                        </Button>
+                    <div className="flex flex-col gap-2">
+                        {/* Selector de Torneo */}
+                        {tieneTorneos && (
+                            <div className="space-y-2">
+                                <label className="text-sm font-bold uppercase tracking-wider">Torneo Activo:</label>
+                                <select
+                                    value={torneoSeleccionado}
+                                    onChange={(e) => setTorneoSeleccionado(e.target.value)}
+                                    className="flex h-12 w-full border-2 border-primary bg-background px-3 py-2 text-sm font-bold focus:border-primary outline-none transition-colors"
+                                >
+                                    {torneos.map((torneo) => (
+                                        <option key={torneo.id} value={torneo.id}>
+                                            {torneo.nombre}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+                        <div className="flex gap-2 overflow-x-auto pb-2">
+                            <Button
+                                variant={view === "torneo" ? "default" : "outline"}
+                                className="font-bold border-2 flex-shrink-0"
+                                onClick={() => handleCambiarVista("torneo")}
+                            >
+                                <Trophy className="mr-2 h-4 w-4" /> + TORNEO
+                            </Button>
+                            <Button
+                                variant={view === "equipo" ? "default" : "outline"}
+                                className="font-bold border-2 flex-shrink-0"
+                                onClick={() => handleCambiarVista("equipo")}
+                            >
+                                <Users className="mr-2 h-4 w-4" /> + EQUIPO
+                            </Button>
+                            <Button
+                                variant={view === "jugador" ? "default" : "outline"}
+                                className="font-bold border-2 flex-shrink-0"
+                                onClick={() => handleCambiarVista("jugador")}
+                            >
+                                <UserPlus className="mr-2 h-4 w-4" /> + JUGADOR
+                            </Button>
+                            <Button
+                                variant={view === "evento" ? "default" : "outline"}
+                                className="font-bold border-2 flex-shrink-0"
+                                onClick={() => handleCambiarVista("evento")}
+                            >
+                                <Calendar1 className="mr-2 h-4 w-4" /> + EVENTO
+                            </Button>
+                        </div>
                     </div>
                 </div>
 
@@ -529,6 +455,24 @@ export function Dashboard({ user }: DashboardProps) {
                                 </div>
                             )}
 
+                            {/* Información del torneo seleccionado */}
+                            {tieneTorneos && torneoSeleccionado && (
+                                <div className="md:col-span-2 bg-primary/10 border-2 border-primary p-6 rounded-lg">
+                                    <div className="flex items-start gap-3">
+                                        <Trophy className="h-6 w-6 text-primary mt-0.5" />
+                                        <div>
+                                            <h3 className="font-bold text-lg mb-2">
+                                                Torneo Activo: {torneos.find(t => t.id === torneoSeleccionado)?.nombre}
+                                            </h3>
+                                            <div className="grid grid-cols-2 gap-4 text-sm">
+                                                <p><span className="font-bold">Equipos:</span> {equipos.length}</p>
+                                                <p><span className="font-bold">Jugadores:</span> {jugadores.length}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
                             <div
                                 className="group relative overflow-hidden bg-card border border-border hover:border-primary transition-all duration-300 p-8 cursor-pointer"
                                 onClick={() => handleCambiarVista("torneo")}
@@ -547,12 +491,12 @@ export function Dashboard({ user }: DashboardProps) {
                             </div>
 
                             <div
-                                className={`group relative overflow-hidden bg-card border border-border transition-all duration-300 p-8 ${tieneTorneos ? 'hover:border-primary cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                                className={`group relative overflow-hidden bg-card border border-border transition-all duration-300 p-8 ${tieneTorneos && torneoSeleccionado ? 'hover:border-primary cursor-pointer' : 'opacity-50 cursor-not-allowed'
                                     }`}
                                 onClick={() => handleCambiarVista("equipo")}
                             >
-                                <Badge className={`font-bold mb-4 ${tieneTorneos ? 'bg-muted text-muted-foreground' : 'bg-gray-300 text-gray-500'}`}>
-                                    {tieneTorneos ? 'MÓDULO' : 'BLOQUEADO'}
+                                <Badge className={`font-bold mb-4 ${tieneTorneos && torneoSeleccionado ? 'bg-muted text-muted-foreground' : 'bg-gray-300 text-gray-500'}`}>
+                                    {tieneTorneos && torneoSeleccionado ? 'MÓDULO' : 'BLOQUEADO'}
                                 </Badge>
                                 <h3 className="text-2xl font-bold mb-2 uppercase">Planilla de Equipos</h3>
                                 <p className="text-muted-foreground font-medium">
@@ -560,7 +504,7 @@ export function Dashboard({ user }: DashboardProps) {
                                 </p>
                                 {equipos.length > 0 && (
                                     <p className="text-sm text-primary font-bold mt-2">
-                                        {equipos.length} equipo{equipos.length !== 1 ? 's' : ''} creado{equipos.length !== 1 ? 's' : ''}
+                                        {equipos.length} equipo{equipos.length !== 1 ? 's' : ''} en este torneo
                                     </p>
                                 )}
                                 {!tieneTorneos && (
@@ -568,41 +512,56 @@ export function Dashboard({ user }: DashboardProps) {
                                         ⚠️ Requiere crear un torneo primero
                                     </p>
                                 )}
+                                {tieneTorneos && !torneoSeleccionado && (
+                                    <p className="text-sm text-red-500 font-bold mt-2">
+                                        ⚠️ Selecciona un torneo primero
+                                    </p>
+                                )}
                                 <div className="absolute inset-x-0 bottom-0 h-1 bg-primary transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300" />
                             </div>
 
                             <div
-                                className={`group relative overflow-hidden bg-card border border-border transition-all duration-300 p-8 ${tieneTorneos && tieneEquipos ? 'hover:border-primary cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                                className={`group relative overflow-hidden bg-card border border-border transition-all duration-300 p-8 ${tieneTorneos && tieneEquipos && torneoSeleccionado ? 'hover:border-primary cursor-pointer' : 'opacity-50 cursor-not-allowed'
                                     }`}
                                 onClick={() => handleCambiarVista("jugador")}
                             >
-                                <Badge className={`font-bold mb-4 ${tieneTorneos && tieneEquipos ? 'bg-muted text-muted-foreground' : 'bg-gray-300 text-gray-500'}`}>
-                                    {tieneTorneos && tieneEquipos ? 'MÓDULO' : 'BLOQUEADO'}
+                                <Badge className={`font-bold mb-4 ${tieneTorneos && tieneEquipos && torneoSeleccionado ? 'bg-muted text-muted-foreground' : 'bg-gray-300 text-gray-500'}`}>
+                                    {tieneTorneos && tieneEquipos && torneoSeleccionado ? 'MÓDULO' : 'BLOQUEADO'}
                                 </Badge>
                                 <h3 className="text-2xl font-bold mb-2 uppercase">Registro de Jugadores</h3>
                                 <p className="text-muted-foreground font-medium">
                                     Inscribe a los deportistas reales con sus datos técnicos.
                                 </p>
+                                {jugadores.length > 0 && (
+                                    <p className="text-sm text-primary font-bold mt-2">
+                                        {jugadores.length} jugador{jugadores.length !== 1 ? 'es' : ''} en este torneo
+                                    </p>
+                                )}
                                 {!tieneTorneos && (
                                     <p className="text-sm text-red-500 font-bold mt-2">
                                         ⚠️ Requiere crear un torneo primero
                                     </p>
                                 )}
-                                {tieneTorneos && !tieneEquipos && (
+                                {tieneTorneos && !torneoSeleccionado && (
                                     <p className="text-sm text-red-500 font-bold mt-2">
-                                        ⚠️ Requiere crear un equipo primero
+                                        ⚠️ Selecciona un torneo primero
+                                    </p>
+                                )}
+                                {tieneTorneos && torneoSeleccionado && !tieneEquipos && (
+                                    <p className="text-sm text-red-500 font-bold mt-2">
+                                        ⚠️ Requiere crear un equipo en este torneo primero
                                     </p>
                                 )}
                                 <div className="absolute inset-x-0 bottom-0 h-1 bg-primary transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300" />
                             </div>
 
                             <div
-                                className={`group relative overflow-hidden bg-card border border-border transition-all duration-300 p-8 ${tieneTorneos && tieneEquipos ? 'hover:border-primary cursor-pointer' : 'opacity-50 cursor-not-allowed'
+                                className={`group relative overflow-hidden bg-card border border-border transition-all duration-300 p-8 ${tieneTorneos && tieneEquipos && torneoSeleccionado ? 'hover:border-primary cursor-pointer' : 'opacity-50 cursor-not-allowed'
                                     }`}
                                 onClick={() => handleCambiarVista("evento")}
                             >
-                                <Badge className={`font-bold mb-4 ${tieneTorneos && tieneEquipos ? 'bg-muted text-muted-foreground' : 'bg-gray-300 text-gray-500'}`}>
-                                    {tieneTorneos && tieneEquipos ? 'MÓDULO' : 'BLOQUEADO'}
+                                <Badge className={`font-bold mb-4 ${tieneTorneos && tieneEquipos && torneoSeleccionado ? 'bg-muted text-muted-foreground' : 'bg-gray-300 text-gray-500'}`}>
+                                    {tieneTorneos && tieneEquipos && torneoSeleccionado ? 'MÓDULO' : 'BLOQUEADO'}
                                 </Badge>
                                 <h3 className="text-2xl font-bold mb-2 uppercase">Registro de Eventos</h3>
                                 <p className="text-muted-foreground font-medium">
@@ -613,9 +572,14 @@ export function Dashboard({ user }: DashboardProps) {
                                         ⚠️ Requiere crear un torneo primero
                                     </p>
                                 )}
-                                {tieneTorneos && !tieneEquipos && (
+                                {tieneTorneos && !torneoSeleccionado && (
                                     <p className="text-sm text-red-500 font-bold mt-2">
-                                        ⚠️ Requiere crear un equipo primero
+                                        ⚠️ Selecciona un torneo primero
+                                    </p>
+                                )}
+                                {tieneTorneos && torneoSeleccionado && !tieneEquipos && (
+                                    <p className="text-sm text-red-500 font-bold mt-2">
+                                        ⚠️ Requiere crear un equipo en este torneo primero
                                     </p>
                                 )}
                                 <div className="absolute inset-x-0 bottom-0 h-1 bg-primary transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300" />
@@ -647,7 +611,8 @@ export function Dashboard({ user }: DashboardProps) {
                                     setFormEquipoData={setFormEquipoData}
                                     onSubmit={handleSubmitEquipo}
                                     loading={loading}
-                                    torneos={torneos}
+                                    torneoSeleccionado={torneoSeleccionado}
+                                    torneoNombre={torneos.find(t => t.id === torneoSeleccionado)?.nombre || ""}
                                 />
                             )}
                             {view === "jugador" && (
@@ -657,6 +622,7 @@ export function Dashboard({ user }: DashboardProps) {
                                     onSubmit={handleSubmitJugador}
                                     loading={loading}
                                     equipos={equipos}
+                                    torneoNombre={torneos.find(t => t.id === torneoSeleccionado)?.nombre || ""}
                                 />
                             )}
                             {view === "evento" && (
@@ -666,6 +632,9 @@ export function Dashboard({ user }: DashboardProps) {
                                     onSubmit={handleSubmitEvento}
                                     loading={loading}
                                     equipos={equipos}
+                                    torneoNombre={torneos.find(t => t.id === torneoSeleccionado)?.nombre || ""
+
+                                    }
                                 />
                             )}
                             <div className="absolute inset-x-0 top-0 h-1 bg-primary" />
@@ -780,7 +749,8 @@ function EquipoForm({
     setFormEquipoData,
     onSubmit,
     loading,
-    torneos
+    torneoSeleccionado,
+    torneoNombre
 }: {
     formEquipoData: {
         equipoNombre: string;
@@ -796,11 +766,15 @@ function EquipoForm({
     }>>;
     onSubmit: (e: React.FormEvent) => void;
     loading: boolean;
-    torneos: any[];
+    torneoSeleccionado: string;
+    torneoNombre: string;
 }) {
     return (
         <form onSubmit={onSubmit} className="space-y-6">
-            <h3 className="text-3xl font-bold uppercase">Nueva Planilla de Equipo</h3>
+            <div>
+                <h3 className="text-3xl font-bold uppercase">Nueva Planilla de Equipo</h3>
+                <p className="text-primary font-bold mt-2">Para el torneo: {torneoNombre}</p>
+            </div>
             <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
                     <label className="text-sm font-bold uppercase tracking-wider">Nombre del Equipo</label>
@@ -838,26 +812,6 @@ function EquipoForm({
                     />
                     <p className="text-xs text-muted-foreground">* La subida de imágenes estará disponible próximamente</p>
                 </div>
-                <div className="space-y-2">
-                    <label className="text-sm font-bold uppercase tracking-wider">Seleccionar Torneo</label>
-                    <select
-                        value={formEquipoData.equipoTorneo}
-                        onChange={(e) => setFormEquipoData({ ...formEquipoData, equipoTorneo: e.target.value })}
-                        className="flex h-12 w-full border-2 border-border bg-background px-3 py-2 text-sm font-bold focus:border-primary outline-none transition-colors"
-                        required
-                        disabled={loading}
-                    >
-                        <option value="">SELECCIONAR TORNEO</option>
-                        {torneos.map((torneo) => (
-                            <option key={torneo.id} value={torneo.id}>
-                                {torneo.nombre}
-                            </option>
-                        ))}
-                    </select>
-                    {torneos.length === 0 && (
-                        <p className="text-xs text-red-500 font-bold">No tienes torneos creados</p>
-                    )}
-                </div>
             </div>
             <Button
                 type="submit"
@@ -875,7 +829,8 @@ function JugadorForm({
     setFormJugadorData,
     onSubmit,
     loading,
-    equipos
+    equipos,
+    torneoNombre
 }: {
     formJugadorData: {
         jugadorNombre: string;
@@ -902,10 +857,14 @@ function JugadorForm({
     onSubmit: (e: React.FormEvent) => void;
     loading: boolean;
     equipos: any[];
+    torneoNombre: string;
 }) {
     return (
         <form onSubmit={onSubmit} className="space-y-6">
-            <h3 className="text-3xl font-bold uppercase">Registro de Jugador</h3>
+            <div>
+                <h3 className="text-3xl font-bold uppercase">Registro de Jugador</h3>
+                <p className="text-primary font-bold mt-2">Para el torneo: {torneoNombre}</p>
+            </div>
             <div className="grid gap-6 md:grid-cols-3">
                 <div className="space-y-2">
                     <label className="text-sm font-bold uppercase tracking-wider">Nombre Completo</label>
@@ -995,7 +954,7 @@ function JugadorForm({
                         ))}
                     </select>
                     {equipos.length === 0 && (
-                        <p className="text-xs text-red-500 font-bold">No tienes equipos creados</p>
+                        <p className="text-xs text-red-500 font-bold">No hay equipos en este torneo</p>
                     )}
                 </div>
                 <div className="space-y-2">
@@ -1054,7 +1013,8 @@ function EventoForm({
     setFormEventoData,
     onSubmit,
     loading,
-    equipos
+    equipos,
+    torneoNombre
 }: {
     formEventoData: {
         eventoNombre: string;
@@ -1063,6 +1023,8 @@ function EventoForm({
         eventoEquipoVisitante: string;
         eventoFecha: string;
         eventoHora: string;
+        eventoTorneo: string;
+        eventoImagen: File | null;
     };
     setFormEventoData: React.Dispatch<React.SetStateAction<{
         eventoNombre: string;
@@ -1071,14 +1033,20 @@ function EventoForm({
         eventoEquipoVisitante: string;
         eventoFecha: string;
         eventoHora: string;
+        eventoTorneo: string;
+        eventoImagen: File | null;
     }>>;
     onSubmit: (e: React.FormEvent) => void;
     loading: boolean;
     equipos: any[];
+    torneoNombre: string;
 }) {
     return (
         <form onSubmit={onSubmit} className="space-y-6">
-            <h3 className="text-3xl font-bold uppercase">Registra el Evento</h3>
+            <div>
+                <h3 className="text-3xl font-bold uppercase">Registra el Evento</h3>
+                <p className="text-primary font-bold mt-2">Para el torneo: {torneoNombre}</p>
+            </div>
             <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
                     <label className="text-sm font-bold uppercase tracking-wider">Nombre del Evento</label>
@@ -1087,18 +1055,6 @@ function EventoForm({
                         placeholder="EJ: FINAL COPA ÉLITE 2024"
                         value={formEventoData.eventoNombre}
                         onChange={(e) => setFormEventoData({ ...formEventoData, eventoNombre: e.target.value })}
-                        required
-                        disabled={loading}
-                    />
-                </div>
-                <div className="space-y-2">
-                    <label className="text-sm font-bold uppercase tracking-wider">Ubicación</label>
-                    <Input
-                        type="text"
-                        placeholder="Estadio Nacional..."
-                        value={formEventoData.eventoUbicacion}
-                        onChange={(e) => setFormEventoData({ ...formEventoData, eventoUbicacion: e.target.value })}
-                        className="flex h-12 w-full border-2 border-border bg-background px-3 py-2 text-sm font-bold focus:border-primary outline-none transition-colors"
                         required
                         disabled={loading}
                     />
@@ -1120,7 +1076,7 @@ function EventoForm({
                         ))}
                     </select>
                     {equipos.length === 0 && (
-                        <p className="text-xs text-red-500 font-bold">No tienes equipos creados</p>
+                        <p className="text-xs text-red-500 font-bold">No hay equipos en este torneo</p>
                     )}
                 </div>
                 <div className="space-y-2">
@@ -1142,7 +1098,7 @@ function EventoForm({
                             ))}
                     </select>
                     {equipos.length === 0 && (
-                        <p className="text-xs text-red-500 font-bold">No tienes equipos creados</p>
+                        <p className="text-xs text-red-500 font-bold">No hay equipos en este torneo</p>
                     )}
                     {equipos.length === 1 && (
                         <p className="text-xs text-amber-500 font-bold">Necesitas al menos 2 equipos para crear un evento</p>
@@ -1170,6 +1126,32 @@ function EventoForm({
                         disabled={loading}
                     />
                 </div>
+                <div className="space-y-2">
+                    <label className="text-sm font-bold uppercase tracking-wider">Ubicación</label>
+                    <Input
+                        type="text"
+                        placeholder="Estadio Nacional..."
+                        value={formEventoData.eventoUbicacion}
+                        onChange={(e) => setFormEventoData({ ...formEventoData, eventoUbicacion: e.target.value })}
+                        className="flex h-12 w-full border-2 border-border bg-background px-3 py-2 text-sm font-bold focus:border-primary outline-none transition-colors"
+                        required
+                        disabled={loading}
+                    />
+                </div>
+                <div className="space-y-2">
+                    <label className="text-sm font-bold uppercase tracking-wider">Imagen (Opcional)</label>
+                    <input
+                        type="file"
+                        accept="image/*"
+                        onChange={(e) => setFormEventoData({
+                            ...formEventoData,
+                            eventoImagen: e.target.files ? e.target.files[0] : null
+                        })}
+                        className="flex h-12 w-full border-2 border-border bg-background px-3 py-2 text-sm font-bold focus:border-primary outline-none transition-colors"
+                        disabled={loading}
+                    />
+                    <p className="text-xs text-muted-foreground">* La subida de imágenes estará disponible próximamente</p>
+                </div>
             </div>
             <Button
                 type="submit"
@@ -1180,7 +1162,7 @@ function EventoForm({
             </Button>
             {equipos.length < 2 && (
                 <p className="text-sm text-red-500 font-bold">
-                    ⚠️ Necesitas al menos 2 equipos para crear un evento
+                    ⚠️ Necesitas al menos 2 equipos en este torneo para crear un evento
                 </p>
             )}
         </form>

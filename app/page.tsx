@@ -5,10 +5,10 @@ import { onAuthStateChanged, User } from "firebase/auth"
 import { auth } from "@/lib/firebase" // Asegúrate de que esta ruta sea correcta
 
 import { HeroSection } from "@/components/hero-section"
-import { FeaturedMatches } from "@/components/featured-matches"
-import { TopTeams } from "@/components/top-teams"
-import { UpcomingEvents } from "@/components/upcoming-events"
-import { FeaturedPlayers } from "@/components/featured-players"
+import { PartidosDestacados } from "@/components/featured-matches"
+import { TopEquipos } from "@/components/top-teams"
+import { ProximosEventos } from "@/components/upcoming-events"
+import { JugadoresDestacados } from "@/components/featured-players"
 import { Dashboard } from "@/components/dashboard"
 
 export default function HomePage() {
@@ -34,10 +34,10 @@ export default function HomePage() {
       {/* LÓGICA CLAVE: Solo si user existe, se renderiza el Dashboard */}
       {user && <Dashboard user={user} />}
       
-      <FeaturedMatches />
-      <UpcomingEvents />
-      <TopTeams />
-      <FeaturedPlayers />
+      <PartidosDestacados/>
+      <ProximosEventos user={user} />
+      <TopEquipos  user={user} />
+      <JugadoresDestacados user={user} />
     </main>
   )
 }

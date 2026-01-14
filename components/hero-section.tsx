@@ -7,6 +7,8 @@ import { useState } from "react"
 export function HeroSection() {
   const [isMuted, setIsMuted] = useState(true)
 
+  const currentYear = new Date().getFullYear();
+
   return (
     <section className="relative h-[85vh] min-h-[600px] w-full overflow-hidden">
       {/* Background Image/Video */}
@@ -18,7 +20,7 @@ export function HeroSection() {
       <div className="relative z-10 flex h-full flex-col items-center justify-center px-4 text-center">
         <div className="max-w-5xl space-y-6 animate-slide-in-up">
           <h1 className="font-display text-6xl md:text-8xl lg:text-9xl font-bold tracking-tight text-white drop-shadow-2xl">
-            TORNEOS ÉLITES 2026
+            TORNEOS ÉLITES {currentYear}
           </h1>
           <p className="text-xl md:text-2xl text-white/90 font-medium max-w-2xl mx-auto">
             La competencias más emocionantes del año
