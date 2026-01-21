@@ -1,9 +1,11 @@
 "use client"
 
-import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, ChevronRight, CalendarIcon } from "lucide-react"
+import { use, useEffect, useState } from "react"
+import { collection, onSnapshot } from "firebase/firestore"
+import { db } from "@/lib/firebase"
 
 const months = [
   "Enero",
@@ -20,46 +22,30 @@ const months = [
   "Diciembre",
 ]
 
-// Mock data - En producción esto vendría de tu backend
-const events = [
-  {
-    date: "2025-04-12",
-    title: "Jornada 8 - Día 1",
-    matches: [
-      { home: "Tigres FC", away: "Águilas SC", time: "16:00", venue: "Estadio Nacional" },
-      { home: "Leones United", away: "Pumas AC", time: "19:00", venue: "Estadio Nacional" },
-    ],
-  },
-  {
-    date: "2025-04-13",
-    title: "Jornada 8 - Día 2",
-    matches: [
-      { home: "Halcones FC", away: "Lobos FC", time: "15:00", venue: "Arena Deportiva" },
-      { home: "Cóndores SC", away: "Panteras United", time: "18:00", venue: "Arena Deportiva" },
-    ],
-  },
-  {
-    date: "2025-04-19",
-    title: "Jornada 9 - Día 1",
-    matches: [
-      { home: "Águilas SC", away: "Leones United", time: "16:30", venue: "Complejo Olímpico" },
-      { home: "Pumas AC", away: "Tigres FC", time: "19:30", venue: "Complejo Olímpico" },
-    ],
-  },
-  {
-    date: "2025-05-03",
-    title: "Semifinales - Ida",
-    matches: [
-      { home: "TBD", away: "TBD", time: "17:00", venue: "Estadio Nacional" },
-      { home: "TBD", away: "TBD", time: "20:00", venue: "Estadio Nacional" },
-    ],
-  },
-]
+type CalendarEvent = {
+  fecha: string
+  titulo: string
+  matches: {
+    equipo_local: string
+    equipo_visitante: string
+    hora: string
+    ubicacion: string
+  }[]
+}
+
+type EquipoEvent = {
+  id: string
+  nombre: string
+}
+
 
 export function EventsCalendar() {
-  const [currentMonth, setCurrentMonth] = useState(3) // Abril (0-indexed)
-  const [currentYear, setCurrentYear] = useState(2025)
-  const [selectedDate, setSelectedDate] = useState<string | null>(null)
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [equipos, setEquipos] = useState<EquipoEvent[]>([]);
+  const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
 
   const getDaysInMonth = (month: number, year: number) => {
     return new Date(year, month + 1, 0).getDate()
@@ -92,15 +78,69 @@ export function EventsCalendar() {
 
   const hasEvent = (day: number) => {
     const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-    return events.some((event) => event.date === dateStr)
+    return events.some((event) => event.fecha === dateStr)
   }
 
   const getEventForDate = (day: number) => {
     const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
-    return events.find((event) => event.date === dateStr)
+    return events.find((event) => event.fecha === dateStr)
   }
 
-  const selectedEvent = selectedDate ? events.find((event) => event.date === selectedDate) : null
+  const selectedEvent = selectedDate ? events.find((event) => event.fecha === selectedDate) : null
+
+
+  // Cunsultos los equipos
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "equipos"),
+      (snapshot) => {
+        const equiposData: EquipoEvent[] = snapshot.docs.map(doc => ({
+          id: doc.id,
+          nombre: doc.data().nombre,
+        }))
+
+        setEquipos(equiposData)
+      }
+    )
+
+    return () => unsubscribe()
+  }, [])
+
+
+  // Mapeo de acuerdo a id los equipos de los eventos.
+  const equiposMap = Object.fromEntries(equipos.map(e => [e.id, e.nombre]));
+
+
+  // Relaciono los equipos de los eventos en el calendario y les doy el formato.
+  useEffect(() => {
+    if (equipos.length === 0) return
+
+    const unsubscribe = onSnapshot(
+      collection(db, "eventos"),
+      (snapshot) => {
+        const eventosFormateados: CalendarEvent[] = snapshot.docs.map((doc) => {
+          const data = doc.data()
+
+          return {
+            fecha: data.fecha,
+            titulo: data.nombre,
+            matches: [
+              {
+                equipo_local: equiposMap[data.equipoLocal] ?? "Equipo desconocido",
+                equipo_visitante: equiposMap[data.equipoVisitante] ?? "Equipo desconocido",
+                hora: data.hora,
+                ubicacion: data.ubicacion,
+              },
+            ],
+          }
+        })
+
+        setEvents(eventosFormateados)
+      }
+    )
+    return () => unsubscribe()
+  }, [equipos])
+
 
   return (
     <div className="grid gap-8 lg:grid-cols-3">
@@ -147,9 +187,8 @@ export function EventsCalendar() {
                 <button
                   key={day}
                   onClick={() => setSelectedDate(dateStr)}
-                  className={`aspect-square flex items-center justify-center rounded-lg text-sm font-medium transition-all ${
-                    hasEventDay ? "bg-primary text-white hover:bg-primary/90" : "hover:bg-muted"
-                  } ${isSelected ? "ring-2 ring-primary ring-offset-2" : ""}`}
+                  className={`aspect-square flex items-center justify-center rounded-lg text-sm font-medium transition-all ${hasEventDay ? "bg-primary text-white hover:bg-primary/90" : "hover:bg-muted"
+                    } ${isSelected ? "ring-2 ring-primary ring-offset-2" : ""}`}
                 >
                   {day}
                 </button>
@@ -173,16 +212,16 @@ export function EventsCalendar() {
             <div>
               <div className="flex items-center gap-2 mb-4">
                 <CalendarIcon className="h-5 w-5 text-primary" />
-                <h3 className="font-display text-2xl font-bold">{selectedEvent.title}</h3>
+                <h3 className="font-display text-2xl font-bold">{selectedEvent.titulo}</h3>
               </div>
 
-              <p className="text-sm text-muted-foreground mb-6">{selectedEvent.date}</p>
+              <p className="text-sm text-muted-foreground mb-6">{selectedEvent.fecha}</p>
 
               <div className="space-y-4">
                 {selectedEvent.matches.map((match, index) => (
                   <div key={index} className="border border-border p-4 hover:border-primary transition-colors">
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-bold text-primary">{match.time}</span>
+                      <span className="text-sm font-bold text-primary">{match.hora}</span>
                       <Badge variant="secondary" className="text-xs">
                         PROGRAMADO
                       </Badge>
@@ -190,15 +229,15 @@ export function EventsCalendar() {
 
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
-                        <span className="font-bold">{match.home}</span>
+                        <span className="font-bold">{match.equipo_local}</span>
                         <span className="text-muted-foreground">vs</span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span className="font-bold">{match.away}</span>
+                        <span className="font-bold">{match.equipo_visitante}</span>
                       </div>
                     </div>
 
-                    <p className="text-xs text-muted-foreground mt-3">{match.venue}</p>
+                    <p className="text-xs text-muted-foreground mt-3">{match.ubicacion}</p>
                   </div>
                 ))}
               </div>

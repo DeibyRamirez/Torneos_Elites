@@ -23,17 +23,17 @@ export function ProximosEventos({ user, torneoId }: EventosProps) {
     const cargarEventos = async () => {
         try {
             setLoading(true);
-            
+
             // Si user es null, pasa null al servicio para obtener datos globales
             // Si user existe, pasa user.uid para obtener solo sus datos
             const userId = user ? user.uid : null;
-            
+
             // Cargar eventos (filtrados por torneo si se proporciona torneoId)
             const eventosData = await obtenerEventosUsuario(userId, torneoId);
-            
+
             // Cargar equipos para poder mostrar sus nombres
             const equiposData = await obtenerEquiposUsuario(userId, torneoId);
-            
+
             setEventos(eventosData);
             setEquipos(equiposData);
         } catch (error) {
@@ -52,9 +52,9 @@ export function ProximosEventos({ user, torneoId }: EventosProps) {
     // Función para formatear la fecha
     const formatearFecha = (fecha: string) => {
         const date = new Date(fecha);
-        const opciones: Intl.DateTimeFormatOptions = { 
-            month: 'short', 
-            day: 'numeric' 
+        const opciones: Intl.DateTimeFormatOptions = {
+            month: 'short',
+            day: 'numeric'
         };
         return date.toLocaleDateString('es-ES', opciones).toUpperCase();
     };
@@ -138,10 +138,29 @@ export function ProximosEventos({ user, torneoId }: EventosProps) {
                                 </div>
 
                                 <div className="p-4 flex gap-2">
-                                    <Button className="flex-1 bg-primary hover:bg-primary/90 font-bold rounded-none">
-                                        VER DETALLES
-                                    </Button>
-                                    <Button variant="outline" className="flex-1 font-bold rounded-none border-2 bg-transparent">
+                                    <Link href={"/eventos"}>
+                                        <Button className="flex-1 bg-primary hover:bg-primary/90 font-bold rounded-none">
+                                            VER DETALLES
+                                        </Button>
+                                    </Link>
+                                    <Button
+                                        variant="outline"
+                                        className="flex-1 font-bold rounded-none border-2 bg-transparent"
+                                        onClick={() => {
+                                            const shareText = `${evento.nombre} - ${formatearFecha(evento.fecha)} ${evento.hora}\n${evento.ubicacion}\n${obtenerNombreEquipo(evento.equipoLocal)} vs ${obtenerNombreEquipo(evento.equipoVisitante)}`;
+
+                                            if (navigator.share) {
+                                                navigator.share({
+                                                    title: evento.nombre,
+                                                    text: shareText,
+                                                    url: window.location.href
+                                                });
+                                            } else {
+                                                navigator.clipboard.writeText(shareText);
+                                                alert("Información copiada al portapapeles");
+                                            }
+                                        }}
+                                    >
                                         COMPARTIR
                                     </Button>
                                 </div>
